@@ -285,8 +285,8 @@ void opal_log_write(int level, const char *tag, const char *msg)
      * Format: [LEVEL][TAG] message\r\n
      * \r\n because many embedded terminal emulators need CR+LF.
      */
-    (void)vsnprintf(buf, sizeof(buf), "[%s][%s] %s\r\n",
-                    s_level_str[level], tag, msg);
+    (void)snprintf(buf, sizeof(buf), "[%s][%s] %s\r\n",
+                   s_level_str[level], tag, msg);
     buf[sizeof(buf) - 1] = '\0';   /* guarantee NUL termination */
 
 #if defined(configPRINTF)
@@ -296,4 +296,38 @@ void opal_log_write(int level, const char *tag, const char *msg)
     /* Fall through to weak platform backend */
     opal_platform_log_write(buf);
 #endif
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * SECTION 5 — FreeRTOS Hooks
+ *
+ * These are required when configUSE_MALLOC_FAILED_HOOK=1 or
+ * configCHECK_FOR_STACK_OVERFLOW=2 in FreeRTOSConfig.h.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * vApplicationMallocFailedHook — called when pvPortMalloc fails
+ *
+ * FreeRTOS calls this when heap allocation fails (heap exhausted).
+ * Default: log an error and halt. Override in your BSP if needed.
+ */
+__attribute__((weak)) void vApplicationMallocFailedHook(void)
+{
+    OPAL_ERR("FreeRTOS heap exhausted — halting");
+    for (;;) { /* halt */ }
+}
+
+/**
+ * vApplicationStackOverflowHook — called when stack overflow detected
+ *
+ * FreeRTOS calls this when configCHECK_FOR_STACK_OVERFLOW=2 detects
+ * stack corruption. Provides task handle and name for debugging.
+ *
+ * Default: log an error and halt. Override in your BSP if needed.
+ */
+__attribute__((weak)) void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+    OPAL_ERR("FreeRTOS stack overflow in task '%s' — halting", pcTaskName);
+    (void)xTask;  /* unused in default impl */
+    for (;;) { /* halt */ }
 }

@@ -26,7 +26,13 @@
  * 1000 Hz gives 1ms resolution for opal_sleep_ms().
  * Lower values (e.g. 100) give 10ms resolution — acceptable but coarser.
  */
-#define configTICK_RATE_HZ                      ( ( TickType_t ) 1000 )
+#define configTICK_RATE_HZ                      1000
+
+/* ── Tick type width ─────────────────────────────────────────────────
+ * Required for FreeRTOS v10.4.0+.
+ * 32 bits for standard resolution.
+ */
+#define configTICK_TYPE_WIDTH_IN_BITS           TICK_TYPE_WIDTH_32_BITS
 
 /* ── Task priorities ─────────────────────────────────────────────────────
  * [PLATFORM] Adjust to suit your application.

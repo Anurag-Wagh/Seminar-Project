@@ -213,9 +213,15 @@ int opal_query_lock_state(opal_dev_t *dev, uint8_t range_id,
 void opal_print_discovery(const opal_discovery_t *d);
 
 /**
- * opal_error_str — return a descriptive string for an error code
+ * opal_error_str — convert error code to human-readable string
  */
 const char *opal_error_str(int err);
+
+/**
+ * opal_dev_get_discovery — get discovery results from device context
+ * Returns NULL if dev is NULL or discovery not performed.
+ */
+const opal_discovery_t *opal_dev_get_discovery(const opal_dev_t *dev);
 
 #ifdef __cplusplus
 }

@@ -462,11 +462,11 @@ static int parse_start_session_resp(struct opal_dev *dev)
         if (b[i] == OPAL_STARTLIST && b[i+1] == 0x84 && b[i+6] == 0x84) {
             uint32_t hsn_echo = parse_u32_be(b + i + 2);
             uint32_t tsn      = parse_u32_be(b + i + 7);
-            OPAL_DBG("Session HSN echo=0x%08X TSN=0x%08X", hsn_echo, tsn);
+            OPAL_DBG("Session HSN echo=0x%08lX TSN=0x%08lX", hsn_echo, tsn);
             (void)hsn_echo;
             dev->tper_session_id = tsn;
             dev->session_open    = 1;
-            OPAL_INFO("Session open: TPER_SN=0x%08X", dev->tper_session_id);
+            OPAL_INFO("Session open: TPER_SN=0x%08lX", dev->tper_session_id);
             return OPAL_OK;
         }
     }
@@ -561,7 +561,7 @@ opal_dev_t *opal_dev_init(const opal_transport_t *transport)
         return NULL;
     }
 
-    OPAL_INFO("opal_dev initialised (host_sn=0x%08X)", dev->host_session_id);
+    OPAL_INFO("opal_dev initialised (host_sn=0x%08lX)", dev->host_session_id);
     return dev;
 }
 
@@ -1242,4 +1242,12 @@ const char *opal_error_str(int err)
     case  OPAL_ERR_TIMEOUT:    return "ERR_TIMEOUT";
     default:                   return "ERR_UNKNOWN";
     }
+}
+
+/**
+ * opal_dev_get_discovery — get discovery results from device context
+ */
+const opal_discovery_t *opal_dev_get_discovery(const opal_dev_t *dev)
+{
+    return dev ? &dev->discovery : NULL;
 }

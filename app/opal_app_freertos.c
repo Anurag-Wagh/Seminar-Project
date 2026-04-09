@@ -26,7 +26,10 @@ static void opal_main_task(void *params)
     if (rc != OPAL_OK) {
         OPAL_ERR("opal_discover failed: %s", opal_error_str(rc));
     } else {
-        opal_print_discovery(&dev->discovery);
+        const opal_discovery_t *disc = opal_dev_get_discovery(dev);
+        if (disc) {
+            opal_print_discovery(disc);
+        }
         rc = opal_start_admin_session(dev, NULL, 0);
         if (rc != OPAL_OK) {
             OPAL_ERR("opal_start_admin_session failed: %s", opal_error_str(rc));
