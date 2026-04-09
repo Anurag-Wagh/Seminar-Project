@@ -1,51 +1,86 @@
-# ─── Member 1 Makefile ──────────────────────────────────────────────────────
-# Builds opal_core.c with the POSIX RAL and mock transport for desktop testing.
-# No FreeRTOS or embedded toolchain required.
+# ── OPAL SED Management — Build System ─────────────────────────────────────
 #
-# Usage:
-#   make          → build test binary
-#   make test     → build + run all unit tests
-#   make clean    → remove build artifacts
-#   make check    → syntax-check all Member 1 headers
+# TWO BUILD TARGETS:
+#   make test       Desktop unit tests  (POSIX RAL + mock transport)
+#   make embedded   Cross-compile for FreeRTOS (arm-none-eabi-gcc)
+#   make check      Portability audit — zero Linux/FreeRTOS headers in core/
+#
+# WHY TWO RAL IMPLEMENTATIONS:
+#   opal_ral_posix.c    = POSIX shim for desktop unit testing ONLY (Member 1 tool)
+#   opal_ral_freertos.c = REAL FreeRTOS RAL — actual project deliverable (Member 2)
+#   opal_core.c compiles identically with both; only the RAL file changes.
 
-CC      = gcc
-CFLAGS  = -Wall -Wextra -Wpedantic -std=c99 -g \
-           -DOPAL_LOG_LEVEL=3 \
-           -I.
-LDFLAGS = -lpthread
+CC_HOST  = gcc
+CC_ARM   = arm-none-eabi-gcc
 
-SRC_CORE  = core/opal_core.c
-SRC_RAL   = ral/opal_ral_posix.c
-SRC_MOCK  = transport/opal_transport_mock.c
-SRC_TEST  = tests/test_opal_core.c
+WARN     = -Wall -Wextra -Wpedantic
+CSTD     = -std=c99
+IFLAGS   = -I.
 
-BIN_TEST  = tests/test_opal_core
+CFLAGS_HOST = $(WARN) $(CSTD) $(IFLAGS) -g -DOPAL_LOG_LEVEL=3
+LDFLAGS_HOST = -lpthread
 
-.PHONY: all test clean check
+CFLAGS_ARM = $(WARN) $(CSTD) $(IFLAGS) \
+             -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard \
+             -Os -ffunction-sections -fdata-sections -DOPAL_LOG_LEVEL=2
+LDFLAGS_ARM = -Wl,--gc-sections -specs=nano.specs -specs=nosys.specs
 
-all: $(BIN_TEST)
+FREERTOS_DIR ?= ../FreeRTOS-Kernel
 
-$(BIN_TEST): $(SRC_TEST) $(SRC_CORE) $(SRC_RAL) $(SRC_MOCK)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
-	@echo ""
-	@echo "  Build OK →  $(BIN_TEST)"
-	@echo "  Run with:   make test"
-	@echo ""
+SRC_CORE      = core/opal_core.c
+SRC_RAL_POSIX = ral/opal_ral_posix.c
+SRC_RAL_RTOS  = ral/opal_ral_freertos.c
+SRC_MOCK      = transport/opal_transport_mock.c
+SRC_TEST      = tests/test_opal_core.c
+SRC_APP       = app/opal_app_freertos.c
+SRC_HW        = transport/opal_transport_hw.c
+
+SRC_FRT = $(FREERTOS_DIR)/tasks.c \
+          $(FREERTOS_DIR)/queue.c \
+          $(FREERTOS_DIR)/list.c \
+          $(FREERTOS_DIR)/timers.c \
+          $(FREERTOS_DIR)/portable/MemMang/heap_4.c \
+          $(FREERTOS_DIR)/portable/GCC/ARM_CM4F/port.c
+
+IFLAGS_ARM = -Icore -Iral -Itransport -Iapp -Ifreertos_port \
+             -I$(FREERTOS_DIR)/include \
+             -I$(FREERTOS_DIR)/portable/GCC/ARM_CM4F
+
+BIN_TEST = tests/test_opal_core
+BIN_ARM  = opal_freertos.elf
+
+.PHONY: all test embedded check clean help
+all: test
+
+$(BIN_TEST): $(SRC_TEST) $(SRC_CORE) $(SRC_RAL_POSIX) $(SRC_MOCK)
+	$(CC_HOST) $(CFLAGS_HOST) $^ -o $@ $(LDFLAGS_HOST)
+	@echo "  Build OK → $(BIN_TEST)  [RAL: POSIX — testing only]"
 
 test: $(BIN_TEST)
 	@echo ""
 	./$(BIN_TEST)
 	@echo ""
 
+embedded:
+	$(CC_ARM) $(CFLAGS_ARM) $(IFLAGS_ARM) \
+	    $(SRC_CORE) $(SRC_RAL_RTOS) $(SRC_APP) $(SRC_HW) $(SRC_FRT) \
+	    -o $(BIN_ARM) $(LDFLAGS_ARM)
+	arm-none-eabi-size $(BIN_ARM)
+	arm-none-eabi-objcopy -O binary $(BIN_ARM) opal_freertos.bin
+	arm-none-eabi-objcopy -O ihex   $(BIN_ARM) opal_freertos.hex
+	@echo "  Build OK → $(BIN_ARM)  [RAL: FreeRTOS — real target]"
+
 check:
-	@echo "Checking headers for Linux dependencies..."
-	@grep -rn "^#include <linux/" core/ && \
-		echo "ERROR: Linux headers found in core!" && exit 1 || \
-		echo "  OK: no Linux headers in core/"
-	@grep -rn "^#include <freertos\|^#include <FreeRTOS" core/ && \
-		echo "ERROR: FreeRTOS headers found in core!" && exit 1 || \
-		echo "  OK: no FreeRTOS headers in core/"
+	@echo "Portability audit..."
+	@grep -rn "^#include <linux/" core/ && echo "FAIL" && exit 1 || echo "  OK: no Linux headers"
+	@grep -rn "^#include <freertos\|^#include <FreeRTOS" core/ && echo "FAIL" && exit 1 || echo "  OK: no FreeRTOS headers"
 	@echo "  Portability check PASSED"
 
 clean:
-	rm -f $(BIN_TEST) *.o core/*.o ral/*.o transport/*.o tests/*.o
+	rm -f $(BIN_TEST) $(BIN_ARM) *.bin *.hex *.o core/*.o ral/*.o transport/*.o app/*.o tests/*.o
+
+help:
+	@echo "make test      — desktop unit tests (POSIX RAL)"
+	@echo "make embedded  — cross-compile for FreeRTOS (arm-none-eabi-gcc)"
+	@echo "make check     — portability audit"
+	@echo "make clean     — remove build artifacts"
