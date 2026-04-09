@@ -1,4 +1,18 @@
-/* opal_ral_posix.c — POSIX implementation for desktop unit testing */
+/**
+ * opal_ral_posix.c — POSIX implementation of the RTOS Abstraction Layer
+ *
+ * This file allows opal_core.c to be compiled and tested on a standard
+ * Linux or macOS desktop WITHOUT FreeRTOS installed.
+ *
+ * Usage: compile with -DOPAL_RAL_POSIX and link this file instead of
+ *        opal_ral_freertos.c.
+ *
+ * PORTING NOTE: To port to a new OS, create a new opal_ral_<os>.c
+ * implementing the same functions. opal_core.c never changes.
+ *
+ * Member 1 uses this file for local testing.
+ * Member 2 owns opal_ral_freertos.c (the real RTOS implementation).
+ */
 
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE

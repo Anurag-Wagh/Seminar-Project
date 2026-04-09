@@ -1,4 +1,21 @@
-/* test_opal_core.c — unit tests for the OPAL core */
+/**
+ * test_opal_core.c — Unit Test Suite for Member 1 (OPAL Core)
+ *
+ * Tests every public function in opal_core.c using the mock transport.
+ * No real hardware needed. Compiles and runs on any Linux/macOS desktop.
+ *
+ * Build:
+ *   gcc -Wall -Wextra -std=c99 \
+ *       test_opal_core.c \
+ *       ../core/opal_core.c \
+ *       ../transport/opal_transport_mock.c \
+ *       ../ral/opal_ral_posix.c \
+ *       -I.. -lpthread -o test_opal_core
+ *
+ * Run:  ./test_opal_core
+ *
+ * Member 1 owns this file.
+ */
 
 #include "../core/opal_core.h"
 #include "../transport/opal_transport_mock.h"

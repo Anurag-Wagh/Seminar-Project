@@ -1,9 +1,48 @@
-/* opal_core.c — OPAL protocol core implementation */
+/**
+ * opal_core.c — TCG OPAL Protocol Core Implementation
+ *
+ * Derived from: Linux kernel drivers/block/sed-opal.c (v6.x)
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ *  LINUX DEPENDENCY REMOVAL — COMPLETE MAP (Member 1 key task)
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  Linux API                  Header               Replaced with
+ *  ─────────────────────────────────────────────────────────────────
+ *  kmalloc(sz, GFP_KERNEL)    <linux/slab.h>       opal_alloc(sz)
+ *  kzalloc(sz, GFP_KERNEL)    <linux/slab.h>       opal_alloc + memset
+ *  kfree(ptr)                 <linux/slab.h>       opal_free(ptr)
+ *  mutex_init(&m)             <linux/mutex.h>      opal_mutex_create()
+ *  mutex_lock(&m)             <linux/mutex.h>      opal_mutex_lock(m)
+ *  mutex_unlock(&m)           <linux/mutex.h>      opal_mutex_unlock(m)
+ *  mutex_destroy(&m)          <linux/mutex.h>      opal_mutex_destroy(m)
+ *  msleep(ms)                 <linux/delay.h>      opal_sleep_ms(ms)
+ *  pr_err(fmt,...)            <linux/printk.h>     OPAL_ERR(fmt,...)
+ *  pr_warn(fmt,...)           <linux/printk.h>     OPAL_WARN(fmt,...)
+ *  pr_info(fmt,...)           <linux/printk.h>     OPAL_INFO(fmt,...)
+ *  pr_debug(fmt,...)          <linux/printk.h>     OPAL_DBG(fmt,...)
+ *  blk_execute_rq(...)        <linux/blkdev.h>     transport->send/recv
+ *  blk_mq_alloc_request(...)  <linux/blk-mq.h>    REMOVED
+ *  struct request *rq         <linux/blkdev.h>     REMOVED
+ *  struct bio *bio            <linux/bio.h>        REMOVED
+ *  struct request_queue *q    <linux/blkdev.h>     REMOVED
+ *  struct gendisk *disk       <linux/genhd.h>      REMOVED
+ *  wait_queue_head_t wq       <linux/wait.h>       REMOVED
+ *  DECLARE_COMPLETION(c)      <linux/completion.h> REMOVED
+ *  complete(c)                <linux/completion.h> REMOVED
+ *  wait_for_completion(c)     <linux/completion.h> REMOVED
+ *
+ *  Zero #include <linux/...> in this file. Zero #include <FreeRTOS.h>.
+ *  Pure C99 — compiles with any embedded toolchain.
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * Member 1 owns this file.
+ */
 
 #include "opal_core.h"
 #include "opal_tokens.h"
 #include "opal_uids.h"
-#include <string.h>   /* memset, memcpy */
+#include <string.h>   /* memset, memcpy — standard C99 only */
 
 /* ═══════════════════════════════════════════════════════════════════
  * SECTION 1 — Internal device state
@@ -12,14 +51,29 @@
 /**
  * struct opal_dev — private context for one OPAL drive
  *
- * This struct stores protocol state, transport callbacks, and sync state.
+ * LINUX EQUIVALENT: struct opal_dev in sed-opal.c
+ *
+ * FIELDS REMOVED vs Linux version:
+ *   struct request_queue  *queue;      // Linux block layer I/O queue
+ *   struct bio            *bio;        // Linux block I/O descriptor
+ *   wait_queue_head_t      cmd_wait_q; // Linux wait queue
+ *   struct completion     *compl;      // Linux async completion
+ *   struct mutex           opal_lock;  // Linux kernel mutex
+ *   struct gendisk        *disk;       // Linux block device handle
+ *
+ * FIELDS ADDED for portability:
+ *   opal_transport_t  transport;  // pluggable I/O (Member 3)
+ *   opal_mutex_t      lock;       // OS-agnostic mutex (Member 2 RAL)
+ *
+ * FIELDS RETAINED (pure OPAL protocol state — OS-independent):
+ *   session IDs, com_id, discovery results, packet buffers
  */
 struct opal_dev {
-    /* transport backend */
+    /* ── Transport backend (plugged in by Member 3) ─────────────── */
     opal_transport_t transport;
 
-    /* synchronization state */
-    opal_mutex_t     lock;           /* OS-agnostic mutex */
+    /* ── Synchronisation (via RAL — Member 2) ───────────────────── */
+    opal_mutex_t     lock;           /* LINUX WAS: struct mutex opal_lock */
 
     /* ── Discovery results ───────────────────────────────────────── */
     opal_discovery_t discovery;
@@ -44,6 +98,10 @@ struct opal_dev {
 
 /**
  * buf_reset — clear cmd_buf and position write cursor after header zone
+ *
+ * LINUX EQUIVALENT: cmd_start() in sed-opal.c
+ * Linux writes into a DMA buffer attached to struct request.
+ * We write directly into dev->cmd_buf.
  */
 static void buf_reset(struct opal_dev *dev)
 {
@@ -122,7 +180,13 @@ static int append_bytes(struct opal_dev *dev, const uint8_t *data, size_t len)
 /**
  * buf_finalise — stamp ComPacket / Packet / SubPacket length fields
  *
- * The packet format has nested length headers and a 4-byte payload pad.
+ * LINUX EQUIVALENT: cmd_finalize() in sed-opal.c
+ *
+ * The TCG packet format has three nested length headers:
+ *   [ComPacket hdr 20B][Packet hdr 24B][SubPacket hdr 8B][payload...][pad]
+ *
+ * Linux writes into a DMA-mapped kernel page and submits via struct request.
+ * We write directly into dev->cmd_buf — no DMA, no request allocation.
  */
 static void buf_finalise(struct opal_dev *dev)
 {
@@ -177,7 +241,19 @@ static void buf_finalise(struct opal_dev *dev)
 /**
  * opal_send_recv — finalise a command and exchange it with the drive
  *
- * This function stamps packet headers and sends the command via the transport.
+ * LINUX EQUIVALENT: opal_send_recv() + submit_opal_request() in sed-opal.c
+ *
+ * Linux path (removed):
+ *   1. blk_mq_alloc_request()       — allocate kernel request
+ *   2. bio_map_kern()               — map cmd_buf into a struct bio
+ *   3. blk_execute_rq()             — submit; blocks on wait_queue_head_t
+ *   4. read response from DMA buf   — after interrupt wakes the wait queue
+ *
+ * Portable path (this function):
+ *   1. buf_finalise()               — stamp packet headers in cmd_buf
+ *   2. transport->send()            — Member 3 sends ATA TRUSTED SEND
+ *   3. transport->recv()            — Member 3 reads ATA TRUSTED RECEIVE
+ *   No kernel block layer. No DMA mapping. No wait queues.
  */
 static int opal_send_recv(struct opal_dev *dev,
                            uint8_t proto_id, uint16_t com_id)
@@ -224,10 +300,13 @@ static int opal_send_recv(struct opal_dev *dev,
 /**
  * parse_status — extract the method status code from a response packet
  *
- * parse_status — extract method status from the response buffer.
+ * LINUX EQUIVALENT: parse_status() in sed-opal.c
  *
  * The TCG status block is the last 5 tokens before ENDOFDATA:
  *   [STARTLIST] [status_code u8] [reserved u8] [reserved u8] [ENDLIST] [ENDOFDATA]
+ *
+ * Linux reads from the DMA-mapped response buffer.
+ * We read directly from dev->resp_buf.
  */
 static int parse_status(struct opal_dev *dev)
 {
@@ -275,10 +354,13 @@ static uint32_t parse_u32_be(const uint8_t *b)
 /**
  * parse_discovery — decode a Level 0 Discovery response
  *
+ * LINUX EQUIVALENT: opal_discovery0_end() in sed-opal.c
+ *
  * The discovery response is a flat list of feature descriptors.
  * Each descriptor has: [feature_code u16][version u8][length u8][data...]
  *
  * We walk the descriptor list and extract locking state and ComID.
+ * Logic is identical to Linux; only the buffer source is different.
  */
 static int parse_discovery(struct opal_dev *dev)
 {
@@ -361,6 +443,8 @@ static int parse_discovery(struct opal_dev *dev)
 /**
  * parse_start_session_resp — extract TPer session ID from StartSession reply
  *
+ * LINUX EQUIVALENT: opal_start_session_cont() in sed-opal.c
+ *
  * The SyncSession response payload looks like:
  *   CALL [SMUID] [StartSession method]
  *   STARTLIST [HSN u32] [TSN u32] [...options...] ENDLIST ENDOFDATA [status]
@@ -436,10 +520,19 @@ static void build_locking_range_uid(uint8_t uid[OPAL_UID_LEN], uint8_t range_id)
  * SECTION 6 — Public API implementation
  * ═══════════════════════════════════════════════════════════════════ */
 
-//*
+/**
  * opal_dev_init — allocate and initialise a device context
  *
- * Allocates the device state and creates the transport mutex.
+ * LINUX EQUIVALENT: opal_dev_init() in sed-opal.c
+ *
+ * LINUX WAS:
+ *   dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+ *   mutex_init(&dev->opal_lock);
+ *   init_waitqueue_head(&dev->cmd_wait_q);
+ *
+ * PORTABLE:
+ *   dev = opal_alloc(sizeof(*dev));   ← opal_ral.h
+ *   dev->lock = opal_mutex_create();  ← opal_ral.h
  */
 opal_dev_t *opal_dev_init(const opal_transport_t *transport)
 {

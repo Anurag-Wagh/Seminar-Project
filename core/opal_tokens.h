@@ -1,4 +1,9 @@
-/* opal_tokens.h — OPAL packet and token constants */
+/**
+ * opal_tokens.h — TCG OPAL Token and Packet Constants
+ * TCG Storage Architecture Core Spec v2.01 / OPAL SSC v2.01
+ * No OS dependencies — pure C99 constants.
+ * Member 1 owns this file.
+ */
 #ifndef OPAL_TOKENS_H
 #define OPAL_TOKENS_H
 
