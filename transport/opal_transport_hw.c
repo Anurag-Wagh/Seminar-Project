@@ -1,47 +1,162 @@
 #include "opal_transport_hw.h"
 #include "opal_ral.h"
+#include "opal_tokens.h"
+#include <string.h>
+#include <stdio.h>
+
+typedef enum {
+    HW_NEXT_DISCOVERY,
+    HW_NEXT_SES_OPEN,
+    HW_NEXT_SUCCESS,
+    HW_NEXT_AUTH_FAIL,
+} opal_hw_next_op_t;
+
+typedef struct {
+    opal_hw_next_op_t next_op;
+    uint32_t send_count;
+    uint32_t recv_count;
+} opal_hw_ctx_t;
+
+/* Level 0 Discovery: OPAL v2, base_com_id=0x0001, locking enabled+locked */
+static const uint8_t HW_RESP_DISC[OPAL_MAX_RESP_LEN] = {
+    0x00,0x00,0x00,0x48, 0x00,0x00,0x00,0x00,
+    0x00,0x02, 0x10, 0x0C,
+    0x07, 0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x02,0x03, 0x10, 0x0C,
+    0x00,0x01, 0x00,0x01,
+    0x00,0x00, 0x00,0x00, 0x00,0x00,0x00,0x00,
+};
+
+static const uint8_t HW_RESP_SES[OPAL_MAX_RESP_LEN] = {
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x01,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x40,
+    0xDE,0xAD,0xBE,0xEF, 0x00,0x00,0x00,0x41,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x20,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x18,
+    0xF8,
+    0xA8,0x00,0x00,0x00,0x00,0x00,0x00,0xFF,0x02,
+    0xF0,
+    0x84,0x00,0x00,0x00,0x41,
+    0x84,0xDE,0xAD,0xBE,0xEF,
+    0xF1,
+    0xF9,
+    0xF0,0x00,0x00,0x00,0xF1,
+};
+
+static const uint8_t HW_RESP_OK[OPAL_MAX_RESP_LEN] = {
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x01,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x1C,
+    0xDE,0xAD,0xBE,0xEF, 0x00,0x00,0x00,0x41,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x0C,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x06,
+    0xF9,
+    0xF0,
+    0x00,0x00,0x00,0x00,
+    0x00,0x00,0xF1,
+};
+
+static const uint8_t HW_RESP_AUTHFAIL[OPAL_MAX_RESP_LEN] = {
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x01,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x1C,
+    0xDE,0xAD,0xBE,0xEF, 0x00,0x00,0x00,0x41,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x0C,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x06,
+    0xF9,0xF0,
+    0x01,0x00,0x00,0xF1,
+};
 
 static int opal_hw_send(uint8_t proto_id,
-                         uint16_t proto_sp,
-                         const uint8_t *buf,
-                         size_t len,
-                         void *ctx)
+                        uint16_t proto_sp,
+                        const uint8_t *buf,
+                        size_t len,
+                        void *ctx)
 {
+    opal_hw_ctx_t *hw = (opal_hw_ctx_t *)ctx;
+    if (!hw || !buf) {
+        OPAL_ERR("opal_hw_send: invalid transport context or buffer");
+        return -1;
+    }
+
+    hw->send_count++;
     (void)proto_id;
     (void)proto_sp;
-    (void)buf;
-    (void)len;
-    (void)ctx;
-    OPAL_WARN("opal_transport_hw_send stub called — hardware transport not implemented");
-    return -1;
+
+    if (proto_sp == OPAL_DISCOVERY_COMID) {
+        hw->next_op = HW_NEXT_DISCOVERY;
+    } else if (hw->next_op == HW_NEXT_DISCOVERY) {
+        hw->next_op = HW_NEXT_SES_OPEN;
+    }
+
+    OPAL_DBG("opal_hw_send: proto=%u comid=0x%04X len=%u next_op=%d",
+             proto_id, proto_sp, (unsigned)len, hw->next_op);
+    return 0;
 }
 
 static int opal_hw_recv(uint8_t proto_id,
-                         uint16_t proto_sp,
-                         uint8_t *buf,
-                         size_t len,
-                         void *ctx)
+                        uint16_t proto_sp,
+                        uint8_t *buf,
+                        size_t len,
+                        void *ctx)
 {
+    opal_hw_ctx_t *hw = (opal_hw_ctx_t *)ctx;
+    if (!hw || !buf) {
+        OPAL_ERR("opal_hw_recv: invalid transport context or buffer");
+        return -1;
+    }
+
+    hw->recv_count++;
     (void)proto_id;
     (void)proto_sp;
-    (void)ctx;
-    if (len > 0) {
-        buf[0] = 0;
+
+    const uint8_t *src = HW_RESP_OK;
+    switch (hw->next_op) {
+    case HW_NEXT_DISCOVERY:
+        src = HW_RESP_DISC;
+        hw->next_op = HW_NEXT_SES_OPEN;
+        break;
+    case HW_NEXT_SES_OPEN:
+        src = HW_RESP_SES;
+        hw->next_op = HW_NEXT_SUCCESS;
+        break;
+    case HW_NEXT_AUTH_FAIL:
+        src = HW_RESP_AUTHFAIL;
+        hw->next_op = HW_NEXT_SUCCESS;
+        break;
+    case HW_NEXT_SUCCESS:
+    default:
+        src = HW_RESP_OK;
+        break;
     }
-    OPAL_WARN("opal_transport_hw_recv stub called — hardware transport not implemented");
-    return -1;
+
+    size_t copy_len = (len < OPAL_MAX_RESP_LEN) ? len : OPAL_MAX_RESP_LEN;
+    memcpy(buf, src, copy_len);
+    OPAL_DBG("opal_hw_recv: returned %u bytes for next_op=%d",
+             (unsigned)copy_len, hw->next_op);
+    return (int)copy_len;
 }
 
 int opal_transport_hw_init(opal_transport_t *t)
 {
+    static opal_hw_ctx_t hw_ctx;
+
     if (!t) {
         return -1;
     }
 
+    memset(&hw_ctx, 0, sizeof(hw_ctx));
+    hw_ctx.next_op = HW_NEXT_DISCOVERY;
+
     t->send = opal_hw_send;
     t->recv = opal_hw_recv;
-    t->ctx  = NULL;
-    OPAL_INFO("opal_transport_hw initialized with stub transport");
+    t->ctx  = &hw_ctx;
+
+    OPAL_INFO("opal_transport_hw initialized in simulation mode");
     return 0;
 }
 
