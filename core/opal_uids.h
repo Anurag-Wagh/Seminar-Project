@@ -1,36 +1,4 @@
-/**
- * opal_uids.h — TCG OPAL UID and Method Byte Arrays
- *
- * All 8-byte UIDs and Method IDs defined as static const arrays.
- * Source: TCG Storage Architecture Core Specification v2.01
- *         TCG OPAL SSC v2.01
- *
- * ── HOW TO USE ───────────────────────────────────────────────────────────
- * #include this file in opal_core.c ONLY.
- * Never include it in a header — the static arrays would be
- * duplicated in every translation unit that included the header.
- *
- * All names use the UID_ prefix to avoid collisions with the
- * OPAL_UID_* macro names in opal_tokens.h.
- *
- * ── TCG SPEC REFERENCES ──────────────────────────────────────────────────
- * SMUID           Core Spec §5.1.3   — Session Manager object
- * AdminSP         Core Spec §5.1.5   — Administrative Security Provider
- * LockingSP       OPAL SSC §4.3.2    — Locking Security Provider
- * GlobalRange     OPAL SSC §4.3.6.1  — The global locking range (range 0)
- * LockingRange1   OPAL SSC §4.3.6.2  — Named locking range 1
- * C_PIN_Admin1    Core Spec Table 227 — Admin1 credential row
- * C_PIN_User1     Core Spec Table 227 — User1 credential row
- * StartSession    Core Spec §5.2.3   — Open a session to an SP
- * Revert          Core Spec §5.2.5   — Revert SP to factory state
- * Activate        OPAL SSC §4.3.7    — Activate LockingSP
- * Get             Core Spec §5.3.3   — Read table rows/columns
- * Set             Core Spec §5.3.4   — Write table rows/columns
- * Authenticate    Core Spec §5.3.5   — Authenticate authority
- * EndSession      Core Spec §5.2.4   — Close the current session
- *
- * Member 1 owns this file.
- */
+/* opal_uids.h — static UID values used by the OPAL core */
 
 #ifndef OPAL_UIDS_H
 #define OPAL_UIDS_H

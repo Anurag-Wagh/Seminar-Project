@@ -1,14 +1,7 @@
-# ── OPAL SED Management — Build System ─────────────────────────────────────
-#
-# TWO BUILD TARGETS:
-#   make test       Desktop unit tests  (POSIX RAL + mock transport)
-#   make embedded   Cross-compile for FreeRTOS (arm-none-eabi-gcc)
-#   make check      Portability audit — zero Linux/FreeRTOS headers in core/
-#
-# WHY TWO RAL IMPLEMENTATIONS:
-#   opal_ral_posix.c    = POSIX shim for desktop unit testing ONLY (Member 1 tool)
-#   opal_ral_freertos.c = REAL FreeRTOS RAL — actual project deliverable (Member 2)
-#   opal_core.c compiles identically with both; only the RAL file changes.
+# OPAL SED project build file
+# make test      — desktop unit tests using POSIX RAL and mock transport
+# make embedded  — cross-compile firmware with FreeRTOS support
+# make check     — portability audit for core code
 
 CC_HOST  = gcc
 CC_ARM   = arm-none-eabi-gcc

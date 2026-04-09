@@ -1,15 +1,4 @@
-/**
- * opal_transport_mock.c — Mock Storage Transport for Unit Testing
- *
- * Replays pre-recorded OPAL response packets. Byte layout verified
- * against the parsers in opal_core.c.
- *
- * parse_session_open() scans payload for:
- *   STARTLIST(F0) + 0x84 + HSN[4] + 0x84 + TSN[4]
- *
- * parse_status() scans backward for ENDOFDATA(F9) then reads
- * status byte at offset -4 from it.
- */
+/* opal_transport_mock.c — mock transport backend for unit tests */
 #include "opal_transport_mock.h"
 #include "../core/opal_tokens.h"
 #include <string.h>
